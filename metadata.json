@@ -1,0 +1,6 @@
+{
+  "name": "Inkwell Blackboard",
+  "description": "A premium, minimalist digital blackboard for educators with smooth drawing, pages, and infinite canvas.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["drawing", "canvas", "pages"]
+}
