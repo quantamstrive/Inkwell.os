@@ -32,10 +32,24 @@ export interface BoardPage {
   data: any; // Fabric.js JSON state
   thumbnail?: string; // Base64 thumbnail
   backgroundMode: BackgroundMode;
+  width?: number;
+  height?: number;
 }
 
 export interface BoardState {
   pages: BoardPage[];
   currentPageId: string;
   lastUpdated: number;
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  userId: string;
+  pages: BoardPage[];
+  currentPageId: string;
+  createdAt: number; // millisecond timestamp
+  updatedAt: number; // millisecond timestamp
+  tags?: string[];
+  collection?: string;
 }

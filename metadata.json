@@ -1,6 +1,6 @@
 {
-  "name": "Inkwell Blackboard",
-  "description": "A premium, minimalist digital blackboard for educators with smooth drawing, pages, and infinite canvas.",
+  "name": "InkwellOS",
+  "description": "A premium, minimalist digital blackboard for educators with smooth drawing, pages, and dynamic canvas.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["drawing", "canvas", "pages"]
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

@@ -15,8 +15,16 @@
 
 @layer base {
   body {
-    @apply bg-[#0A0A0A] text-[#E0E0E0] overflow-hidden selection:bg-white/10;
+  @apply bg-[#0A0A0A] text-[#E0E0E0] overflow-hidden selection:bg-white/10;
   }
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 
 /* Custom Scrollbar for sidebars */

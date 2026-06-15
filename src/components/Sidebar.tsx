@@ -26,8 +26,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   setIsOpen,
 }) => {
   return (
-    <aside className="w-56 border-l border-white/10 bg-[#070707]/80 backdrop-blur-3xl flex flex-col shrink-0 z-40">
-      <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4 custom-scrollbar">
+    <aside className="w-40 md:w-56 border-l border-white/10 bg-[#070707]/80 backdrop-blur-3xl flex flex-col shrink-0 z-40">
+      <div className="flex-1 overflow-y-auto px-2 md:px-4 py-4 md:py-6 space-y-3 md:space-y-4 custom-scrollbar">
         <AnimatePresence initial={false}>
           {pages.map((page, index) => (
             <motion.div
@@ -65,20 +65,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </div>
 
               {/* Actions Overlay */}
-              <div className="absolute inset-0 bg-black/80 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-all duration-300 flex items-center justify-center gap-3">
+              <div className="absolute inset-0 bg-black/80 backdrop-blur-sm opacity-0 group-hover:opacity-100 md:group-hover:opacity-100 transition-all duration-300 flex items-center justify-center gap-2 md:gap-3">
                 <button 
                   onClick={(e) => { e.stopPropagation(); onDuplicatePage(page.id); }}
-                  className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-white/60 hover:text-white transition-all"
+                  className="p-1.5 md:p-2 rounded-lg md:rounded-xl bg-white/5 hover:bg-white/10 text-white/60 hover:text-white transition-all"
                   title="Duplicate"
                 >
-                  <Copy size={14} />
+                  <Copy size={12} className="md:w-3.5 md:h-3.5" />
                 </button>
                 <button 
                   onClick={(e) => { e.stopPropagation(); onDeletePage(page.id); }}
-                  className="p-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-500/60 hover:text-red-500 transition-all"
+                  className="p-1.5 md:p-2 rounded-lg md:rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-500/60 hover:text-red-500 transition-all"
                   title="Delete"
                 >
-                  <Trash2 size={14} />
+                  <Trash2 size={12} className="md:w-3.5 md:h-3.5" />
                 </button>
               </div>
             </motion.div>

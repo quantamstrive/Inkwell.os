@@ -1,0 +1,48 @@
+{
+  "entities": {
+    "Project": {
+      "title": "Project",
+      "description": "A user digital blackboard project",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Document ID matching the project ID"
+        },
+        "name": {
+          "type": "string",
+          "description": "The name of the project"
+        },
+        "userId": {
+          "type": "string",
+          "description": "The UID of the user who owns this project"
+        },
+        "pages": {
+          "type": "array",
+          "description": "The list of pages with drawing data, thumbnails, background modes, width, and height"
+        },
+        "currentPageId": {
+          "type": "string",
+          "description": "The current page active in the board"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp when project was created"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp when project was last modified"
+        }
+      },
+      "required": ["id", "name", "userId", "pages", "currentPageId"]
+    }
+  },
+  "firestore": {
+    "projects/{projectId}": {
+      "schema": "Project",
+      "description": "User-owned blackboard projects"
+    }
+  }
+}

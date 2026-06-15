@@ -86,10 +86,10 @@ export function useBoard() {
     });
   }, []);
 
-  const setPageData = useCallback((id: string, data: any, thumbnail?: string) => {
+  const setPageData = useCallback((id: string, data: any, thumbnail?: string, width?: number, height?: number) => {
     setState(prev => ({
       ...prev,
-      pages: prev.pages.map(p => p.id === id ? { ...p, data, thumbnail } : p),
+      pages: prev.pages.map(p => p.id === id ? { ...p, data, thumbnail, width, height } : p),
       lastUpdated: Date.now(),
     }));
   }, []);
@@ -106,6 +106,19 @@ export function useBoard() {
     setState(prev => ({ ...prev, currentPageId: id }));
   }, []);
 
+  const loadProjectState = useCallback((pages: BoardPage[], currentPageId: string) => {
+    setState({
+      pages: pages.length > 0 ? pages : [{ 
+        id: INITIAL_PAGE_ID, 
+        name: 'Page 1', 
+        data: null, 
+        backgroundMode: BackgroundMode.Plain 
+      }],
+      currentPageId: currentPageId || (pages[0]?.id || INITIAL_PAGE_ID),
+      lastUpdated: Date.now()
+    });
+  }, []);
+
   return {
     state,
     addPage,
@@ -114,5 +127,6 @@ export function useBoard() {
     setPageData,
     setPageBackground,
     setCurrentPageId,
+    loadProjectState,
   };
 }

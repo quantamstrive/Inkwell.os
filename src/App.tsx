@@ -2,13 +2,19 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { DrawingBoard, DrawingBoardRef } from './components/DrawingBoard';
 import { Toolbar } from './components/Toolbar';
 import { Sidebar } from './components/Sidebar';
-import { ToolType, ShapeType, BackgroundMode } from './types';
+import { ToolType, ShapeType, BackgroundMode, Project } from './types';
 import { useBoard } from './hooks/useBoard';
 import { cn } from './lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
-import { ChevronRight, ChevronLeft, Plus, FileText, RotateCcw, RotateCw, Maximize2, Grid3X3, Square, Layers, LayoutGrid, EyeOff, HelpCircle, X, MousePointer2, PenTool, Eraser, Square as SquareIcon, Circle, Triangle, Type, Download, Trash2, Command } from 'lucide-react';
+import { ChevronRight, ChevronLeft, Plus, FileText, RotateCcw, RotateCw, Maximize2, Grid3X3, Square, Layers, LayoutGrid, EyeOff, HelpCircle, X, MousePointer2, PenTool, Eraser, Square as SquareIcon, Circle, Triangle, Type, Download, Trash2, Command, Menu, Home, Cloud, LogOut } from 'lucide-react';
 
 import { exportAllToPDF } from './lib/exportUtils';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { auth, db } from './lib/firebase';
+import { AuthScreen } from './components/AuthScreen';
+import { Dashboard } from './components/Dashboard';
+import { TutorialScreen } from './components/TutorialScreen';
+import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 
 export default function App() {
   const { 
@@ -18,8 +24,28 @@ export default function App() {
     duplicatePage, 
     setPageData, 
     setCurrentPageId,
-    setPageBackground
+    setPageBackground,
+    loadProjectState
   } = useBoard();
+
+  const [user, setUser] = useState<any>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [showTutorial, setShowTutorial] = useState(() => {
+    return localStorage.getItem('inkwell_tutorial_completed') !== 'true';
+  });
+  const [activeProject, setActiveProject] = useState<Project | null>(null);
+
+  const handleSkipTutorial = () => {
+    localStorage.setItem('inkwell_tutorial_completed', 'true');
+    setShowTutorial(false);
+  };
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [isMainMenuOpen, setIsMainMenuOpen] = useState(false);
+
+  const activeProjectIdRef = useRef<string | null>(null);
+  const prevPagesRef = useRef<string>('');
+  const saveTimeoutRef = useRef<any>(null);
 
   const [activeTool, setActiveTool] = useState<ToolType>(ToolType.Pen);
   const [activeShape, setActiveShape] = useState<ShapeType>(ShapeType.Rectangle);
@@ -33,6 +59,102 @@ export default function App() {
   const [isInfoModalOpen, setIsInfoModalOpen] = useState(false);
 
   const boardRef = useRef<DrawingBoardRef>(null);
+
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768);
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (usr) => {
+      setUser(usr);
+      setAuthLoading(false);
+      if (!usr) {
+        setActiveProject(null);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleSelectProject = (project: Project) => {
+    setActiveProject(project);
+    activeProjectIdRef.current = project.id;
+    prevPagesRef.current = JSON.stringify(project.pages);
+    loadProjectState(project.pages, project.currentPageId);
+  };
+
+  const handleGoToMainPage = () => {
+    setActiveProject(null);
+    setIsMainMenuOpen(false);
+  };
+
+  const handleLogout = () => {
+    signOut(auth).catch(err => console.error("Logout fail:", err));
+  };
+
+  useEffect(() => {
+    if (!activeProject) {
+      activeProjectIdRef.current = null;
+      prevPagesRef.current = '';
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+      return;
+    }
+
+    const currentPagesStr = JSON.stringify(state.pages);
+
+    if (activeProjectIdRef.current !== activeProject.id) {
+      activeProjectIdRef.current = activeProject.id;
+      prevPagesRef.current = currentPagesStr;
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+      return;
+    }
+
+    if (currentPagesStr === prevPagesRef.current) {
+      return;
+    }
+
+    // Trigger debounced autosave
+    setIsSaving(true);
+    setSaveMessage("SAVING...");
+
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+
+    saveTimeoutRef.current = setTimeout(async () => {
+      try {
+        const projectRef = doc(db, 'projects', activeProject.id);
+        await updateDoc(projectRef, {
+          pages: state.pages,
+          currentPageId: state.currentPageId,
+          updatedAt: serverTimestamp(),
+        });
+        prevPagesRef.current = currentPagesStr;
+        setSaveMessage("SAVED");
+        setTimeout(() => setSaveMessage(null), 1500);
+      } catch (err) {
+        console.error("Autosave error:", err);
+        setSaveMessage("SAVE ERROR");
+        setTimeout(() => setSaveMessage(null), 1500);
+      } finally {
+        setIsSaving(false);
+      }
+    }, 1200);
+
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+    };
+  }, [state.pages, state.currentPageId, activeProject]);
 
   const goToPreviousPage = () => {
     const currentIndex = state.pages.findIndex(p => p.id === state.currentPageId);
@@ -61,8 +183,8 @@ export default function App() {
 
   const currentPage = state.pages.find(p => p.id === state.currentPageId) || state.pages[0];
 
-  const handlePageChange = useCallback((data: any, thumbnail: string) => {
-    setPageData(state.currentPageId, data, thumbnail);
+  const handlePageChange = useCallback((data: any, thumbnail: string, width: number, height: number) => {
+    setPageData(state.currentPageId, data, thumbnail, width, height);
   }, [state.currentPageId, setPageData]);
 
   const handleImportImage = () => fileInputRef.current?.click();
@@ -98,8 +220,34 @@ export default function App() {
     }
   };
 
+  if (authLoading) {
+    return (
+      <div id="app-loading" className="flex flex-col items-center justify-center min-h-screen bg-[#0A0A0A] text-white">
+        <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin mb-4" />
+        <span className="font-mono text-[9px] uppercase tracking-widest text-white/40">Securing environment keys...</span>
+      </div>
+    );
+  }
+
+  if (!user) {
+    if (showTutorial) {
+      return <TutorialScreen onSkip={handleSkipTutorial} />;
+    }
+    return <AuthScreen onGoBack={() => setShowTutorial(true)} />;
+  }
+
+  if (!activeProject) {
+    return (
+      <Dashboard 
+        user={user} 
+        onSelectProject={handleSelectProject} 
+        onLogout={handleLogout} 
+      />
+    );
+  }
+
   return (
-    <div className="flex flex-col h-screen w-full bg-[#0A0A0A] text-[#E0E0E0] font-sans overflow-hidden">
+    <div className="flex flex-col h-screen h-[100dvh] w-full bg-[#0A0A0A] text-[#E0E0E0] font-sans overflow-hidden">
       <input 
         type="file" 
         ref={fileInputRef} 
@@ -157,7 +305,7 @@ export default function App() {
                 initial={{ x: -100, opacity: 0 }}
                 animate={{ x: 0, opacity: 1 }}
                 exit={{ x: -100, opacity: 0 }}
-                className="absolute top-1/2 -translate-y-1/2 left-6 z-40"
+                className="absolute top-1/2 -translate-y-1/2 left-2 md:left-6 z-40"
               >
                 <Toolbar 
                   activeTool={activeTool}
@@ -205,56 +353,52 @@ export default function App() {
       <AnimatePresence>
         {!isHideUI && (
           <motion.footer 
-            initial={{ y: 50, opacity: 0 }}
+            initial={{ y: isMobile ? -50 : 50, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 50, opacity: 0 }}
-            className="h-10 border-t border-white/10 bg-[#0D0D0D] flex items-center px-4 shrink-0 z-50 gap-6"
+            exit={{ y: isMobile ? -50 : 50, opacity: 0 }}
+            className="h-14 md:h-10 border-b md:border-b-0 md:border-t border-white/10 bg-[#0D0D0D] flex items-center px-4 shrink-0 z-50 gap-2 md:gap-6 justify-between md:justify-start order-first md:order-last"
           >
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 md:gap-4 shrink-0">
               <div className="w-5 h-5 bg-white/90 rounded flex items-center justify-center">
                 <div className="w-2.5 h-2.5 bg-black rounded-sm rotate-12"></div>
               </div>
-              <span className="font-black text-[10px] tracking-tighter text-white">INKWELL</span>
+              {saveMessage ? (
+                <span className="font-mono text-[9px] text-[#A855F7] bg-[#A855F7]/10 px-2 py-0.5 border border-[#A855F7]/20 rounded tracking-widest animate-pulse h-5 flex items-center shrink-0">
+                  {saveMessage}
+                </span>
+              ) : (
+                <span className="font-black text-[10px] tracking-tighter text-white hidden md:block uppercase truncate max-w-[150px]">
+                  {activeProject?.name}
+                </span>
+              )}
+              
+              <div className="flex items-center gap-0.5 md:gap-1">
+                <button 
+                  onClick={() => boardRef.current?.undo()}
+                  className="p-2 md:p-1.5 hover:bg-white/5 rounded text-white/40 hover:text-white transition-all"
+                  title="Undo"
+                >
+                  <RotateCcw size={16} className="md:w-3.5 md:h-3.5" />
+                </button>
+                <button 
+                  onClick={() => boardRef.current?.redo()}
+                  className="p-2 md:p-1.5 hover:bg-white/5 rounded text-white/40 hover:text-white transition-all"
+                  title="Redo"
+                >
+                  <RotateCw size={16} className="md:w-3.5 md:h-3.5" />
+                </button>
+              </div>
             </div>
 
-            <button 
-              onClick={() => setIsInfoModalOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-white/5 border border-white/5 text-white/40 hover:text-white hover:bg-white/10 transition-all font-bold uppercase tracking-[0.1em] text-[8px]"
-            >
-              <HelpCircle size={10} />
-              <span>More Info</span>
-            </button>
-
-            <div className="h-4 w-px bg-white/10" />
-
-            <div className="flex items-center gap-1">
-              <button 
-                onClick={() => boardRef.current?.undo()}
-                className="p-1.5 hover:bg-white/5 rounded text-white/40 hover:text-white transition-all"
-                title="Undo"
-              >
-                <RotateCcw size={14} />
-              </button>
-              <button 
-                onClick={() => boardRef.current?.redo()}
-                className="p-1.5 hover:bg-white/5 rounded text-white/40 hover:text-white transition-all"
-                title="Redo"
-              >
-                <RotateCw size={14} />
-              </button>
-            </div>
-
-            <div className="h-4 w-px bg-white/10" />
-
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-1 bg-white/5 border border-white/5 px-1 rounded-full">
+            <div className="flex items-center gap-2 md:gap-4 shrink-0">
+              <div className="flex items-center gap-1 bg-white/5 border border-white/5 px-1 rounded-full scale-90 md:scale-100">
                 <button 
                   onClick={goToPreviousPage}
                   disabled={currentPageIndex === 0}
                   className="p-1.5 rounded-full text-white/40 hover:text-white hover:bg-white/10 disabled:opacity-20 disabled:cursor-not-allowed transition-all active:scale-90"
                   title="Previous Page"
                 >
-                  <ChevronLeft size={14} />
+                  <ChevronLeft size={16} />
                 </button>
                 
                 <button 
@@ -262,7 +406,7 @@ export default function App() {
                   className="p-1.5 rounded-full bg-white text-black hover:bg-white/90 transition-all active:scale-90 group"
                   title="Add Page"
                 >
-                  <Plus size={14} className="transition-transform group-hover:rotate-90" />
+                  <Plus size={16} className="transition-transform group-hover:rotate-90" />
                 </button>
 
                 <button 
@@ -271,17 +415,19 @@ export default function App() {
                   className="p-1.5 rounded-full text-white/40 hover:text-white hover:bg-white/10 disabled:opacity-20 disabled:cursor-not-allowed transition-all active:scale-90"
                   title="Next Page"
                 >
-                  <ChevronRight size={14} />
+                  <ChevronRight size={16} />
                 </button>
               </div>
 
-              <div className="text-[10px] font-mono text-white/40 tracking-widest min-w-[3rem] text-center">
+              <div className="text-[10px] font-mono text-white/40 tracking-widest min-w-[2rem] md:min-w-[3rem] text-center hidden xs:block">
                 {currentPageIndex + 1} <span className="opacity-20">/</span> {totalPages}
               </div>
             </div>
 
-            <div className="flex-1 flex items-center justify-end gap-3">
-              <div className="flex items-center gap-1 border border-white/10 rounded-lg p-0.5 bg-black/20">
+            <div className="flex-1 md:flex hidden" />
+
+            <div className="flex items-center justify-end gap-1.5 md:gap-3 shrink-0">
+              <div className="hidden sm:flex items-center gap-1 border border-white/10 rounded-lg p-0.5 bg-black/20">
                 <button 
                   onClick={handleExportPNG}
                   className="px-2 py-1 hover:bg-white/5 rounded text-[9px] font-bold text-white/50 hover:text-white transition-all uppercase"
@@ -297,35 +443,30 @@ export default function App() {
                 </button>
               </div>
 
-              <button 
-                onClick={toggleFullScreen}
-                className="p-1.5 hover:bg-white/5 rounded text-white/40 hover:text-white transition-all"
-                title="Fullscreen"
-              >
-                <Maximize2 size={14} />
-              </button>
-
-              <div className="relative">
+              <div className="relative shrink-0">
                 <button 
                   onClick={() => setIsBGMenuOpen(!isBGMenuOpen)}
                   className={cn(
-                    "flex items-center gap-2 px-3 py-1 rounded-full border transition-all font-bold uppercase tracking-widest text-[9px]",
+                    "flex items-center gap-2 px-2 md:px-3 py-1.5 md:py-1 rounded-full border transition-all active:scale-95 font-bold uppercase tracking-widest text-[9px]",
                     isBGMenuOpen 
                       ? "bg-white text-black border-white" 
                       : "border-white/10 bg-white/5 text-white/60 hover:text-white hover:bg-white/10"
                   )}
                 >
-                  <Grid3X3 size={12} />
-                  <span>BG</span>
+                  <Grid3X3 size={14} />
+                  <span className="hidden md:inline">Background</span>
                 </button>
                 
                 <AnimatePresence>
                   {isBGMenuOpen && (
                     <motion.div 
-                      initial={{ opacity: 0, y: 10 }}
+                      initial={{ opacity: 0, y: isMobile ? -10 : 10 }}
                       animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: 10 }}
-                      className="absolute bottom-full mb-3 right-0 p-3 rounded-2xl bg-black/95 backdrop-blur-2xl border border-white/10 shadow-2xl flex flex-col gap-2 min-w-[200px] z-50"
+                      exit={{ opacity: 0, y: isMobile ? -10 : 10 }}
+                      className={cn(
+                        "absolute right-0 p-3 rounded-2xl bg-black/95 backdrop-blur-2xl border border-white/10 shadow-2xl flex flex-col gap-2 min-w-[160px] md:min-w-[200px] z-50",
+                        isMobile ? "top-full mt-3" : "bottom-full mb-3"
+                      )}
                     >
                       <div className="grid grid-cols-3 gap-2">
                         {[
@@ -353,17 +494,58 @@ export default function App() {
                 </AnimatePresence>
               </div>
 
+              <div className="relative shrink-0">
+                <button 
+                  onClick={() => setIsMainMenuOpen(!isMainMenuOpen)}
+                  className={cn(
+                    "flex items-center gap-2 px-2 md:px-3 py-1.5 md:py-1 rounded-full border transition-all active:scale-95 font-bold uppercase tracking-widest text-[9px] shrink-0",
+                    isMainMenuOpen 
+                      ? "bg-white text-black border-white" 
+                      : "bg-[#A855F7]/10 border-[#A855F7]/20 text-[#D8B4FE] hover:bg-[#A855F7]/20 hover:text-white"
+                  )}
+                >
+                  <Menu size={14} />
+                  <span>Menu</span>
+                </button>
+
+                <AnimatePresence>
+                  {isMainMenuOpen && (
+                    <motion.div 
+                      initial={{ opacity: 0, y: isMobile ? -10 : 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: isMobile ? -10 : 10 }}
+                      className={cn(
+                        "absolute right-0 p-3 rounded-2xl bg-[#0D0D0D] border border-white/10 shadow-2xl flex flex-col gap-2 min-w-[180px] z-[100]",
+                        isMobile ? "top-full mt-3" : "bottom-full mb-3"
+                      )}
+                    >
+                      <div className="text-[10px] text-white/50 border-b border-white/5 pb-2.5 mb-1.5 text-center font-normal font-sans tracking-normal">
+                        everything is autosaved dont need to worry
+                      </div>
+
+                      <button
+                        onClick={handleGoToMainPage}
+                        className="flex items-center gap-2.5 p-2 rounded-xl transition-all border border-white/5 bg-white/5 hover:bg-white text-white hover:text-black text-[10px] font-bold uppercase tracking-wider text-left w-full cursor-pointer"
+                      >
+                        <Home size={12} />
+                        <span>Go to main page</span>
+                      </button>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+
               <button
                 onClick={() => setIsSidebarOpen(!isSidebarOpen)}
                 className={cn(
-                  "flex items-center gap-2 px-3 py-1 rounded-full border transition-all active:scale-95 font-bold uppercase tracking-widest text-[9px]",
+                  "flex items-center gap-2 px-2 md:px-3 py-1.5 md:py-1 rounded-full border transition-all active:scale-95 font-bold uppercase tracking-widest text-[9px] shrink-0",
                   isSidebarOpen 
                     ? "bg-white text-black border-white" 
                     : "bg-white/5 border-white/10 text-white/60 hover:text-white hover:bg-white/10"
                 )}
               >
-                <FileText size={12} />
-                <span>Pages</span>
+                <FileText size={14} />
+                <span className="hidden md:inline">Pages</span>
               </button>
             </div>
           </motion.footer>

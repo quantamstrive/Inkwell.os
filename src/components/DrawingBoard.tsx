@@ -10,7 +10,7 @@ interface DrawingBoardProps {
   backgroundMode: BackgroundMode;
   pageId: string;
   pageData: any;
-  onPageChange: (data: any, thumbnail: string) => void;
+  onPageChange: (data: any, thumbnail: string, width: number, height: number) => void;
 }
 
 export interface DrawingBoardRef {
@@ -36,7 +36,7 @@ export const DrawingBoard = forwardRef<DrawingBoardRef, DrawingBoardProps>(({
 }, ref) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<fabric.Canvas | null>(null);
-  const htmlCanvasRef = useRef<HTMLCanvasElement>(null);
+  const canvasWrapperRef = useRef<HTMLDivElement>(null);
 
   const isDrawingShape = useRef(false);
   const activeShape = useRef<fabric.Object | null>(null);
@@ -45,6 +45,7 @@ export const DrawingBoard = forwardRef<DrawingBoardRef, DrawingBoardProps>(({
   const redoStack = useRef<string[]>([]);
   const isPanning = useRef(false);
   const lastPanPoint = useRef({ x: 0, y: 0 });
+  const isErasing = useRef(false);
 
   const isLoadingRef = useRef(false);
   const lastEmittedJsonRef = useRef<string>('');
@@ -55,16 +56,21 @@ export const DrawingBoard = forwardRef<DrawingBoardRef, DrawingBoardProps>(({
   useEffect(() => { pageIdRef.current = pageId; }, [pageId]);
 
   const emitChange = useCallback(() => {
-    if (!canvasRef.current || canvasRef.current.disposed || isLoadingRef.current) return;
+    if (!canvasRef.current || false || isLoadingRef.current) return;
     const canvas = canvasRef.current;
     const data = canvas.toObject();
     const json = JSON.stringify(data);
     lastEmittedJsonRef.current = json;
-    onPageChangeRef.current(data, canvas.toDataURL({ quality: 0.1, multiplier: 0.1 }));
+    onPageChangeRef.current(
+      data, 
+      canvas.toDataURL({ quality: 0.1, multiplier: 0.1 }),
+      canvas.width!,
+      canvas.height!
+    );
   }, []);
 
   const saveState = useCallback(() => {
-    if (!canvasRef.current || canvasRef.current.disposed || isLoadingRef.current) return;
+    if (!canvasRef.current || false || isLoadingRef.current) return;
     const json = JSON.stringify(canvasRef.current.toObject());
     if (undoStack.current[undoStack.current.length - 1] === json) return;
     undoStack.current.push(json);
@@ -88,9 +94,13 @@ export const DrawingBoard = forwardRef<DrawingBoardRef, DrawingBoardProps>(({
   useEffect(() => { shapeRef.current = activeShapeState; }, [activeShapeState]);
 
   useEffect(() => {
-    if (!htmlCanvasRef.current || !containerRef.current) return;
+    if (!canvasWrapperRef.current || !containerRef.current) return;
 
-    const canvas = new fabric.Canvas(htmlCanvasRef.current, {
+    canvasWrapperRef.current.innerHTML = '';
+    const htmlCanvasElement = document.createElement('canvas');
+    canvasWrapperRef.current.appendChild(htmlCanvasElement);
+
+    const canvas = new fabric.Canvas(htmlCanvasElement, {
       width: containerRef.current.clientWidth,
       height: containerRef.current.clientHeight,
       backgroundColor: 'transparent',
@@ -102,7 +112,7 @@ export const DrawingBoard = forwardRef<DrawingBoardRef, DrawingBoardProps>(({
     canvasRef.current = canvas;
 
     canvas.on('mouse:down', (opt) => {
-      if (canvas.disposed) return;
+      if (canvas !== canvasRef.current) return;
       const pointer = canvas.getScenePoint(opt.e);
       const isAlt = (opt.e as any).altKey;
 
@@ -115,6 +125,7 @@ export const DrawingBoard = forwardRef<DrawingBoardRef, DrawingBoardProps>(({
       }
 
       if (toolRef.current === ToolType.Eraser) {
+        isErasing.current = true;
         const objects = canvas.getObjects();
         let changed = false;
         objects.forEach(obj => {
@@ -125,7 +136,6 @@ export const DrawingBoard = forwardRef<DrawingBoardRef, DrawingBoardProps>(({
         });
         if (changed) {
           canvas.requestRenderAll();
-          saveStateRef.current();
         }
         return;
       }
@@ -160,7 +170,7 @@ export const DrawingBoard = forwardRef<DrawingBoardRef, DrawingBoardProps>(({
     });
 
     canvas.on('mouse:move', (opt) => {
-      if (canvas.disposed) return;
+      if (canvas !== canvasRef.current) return;
       const pointer = canvas.getScenePoint(opt.e);
 
       if (isPanning.current) {
@@ -210,7 +220,7 @@ export const DrawingBoard = forwardRef<DrawingBoardRef, DrawingBoardProps>(({
             break;
         }
         canvas.requestRenderAll();
-      } else if (toolRef.current === ToolType.Eraser && (opt.e as MouseEvent).buttons === 1) {
+      } else if (toolRef.current === ToolType.Eraser && isErasing.current) {
         const objects = canvas.getObjects();
         let changed = false;
         objects.forEach(obj => {
@@ -224,7 +234,7 @@ export const DrawingBoard = forwardRef<DrawingBoardRef, DrawingBoardProps>(({
     });
 
     canvas.on('mouse:up', () => {
-      if (canvas.disposed) return;
+      if (canvas !== canvasRef.current) return;
       if (isPanning.current) {
         isPanning.current = false;
         canvas.setCursor(toolRef.current === ToolType.Pan ? 'grab' : 'default');
@@ -237,7 +247,10 @@ export const DrawingBoard = forwardRef<DrawingBoardRef, DrawingBoardProps>(({
           saveStateRef.current();
         }
       }
-      if (toolRef.current === ToolType.Eraser) saveStateRef.current();
+      if (isErasing.current) {
+        isErasing.current = false;
+        saveStateRef.current();
+      }
     });
 
     canvas.on('object:modified', () => saveStateRef.current());
@@ -247,7 +260,7 @@ export const DrawingBoard = forwardRef<DrawingBoardRef, DrawingBoardProps>(({
     });
 
     const resizeObserver = new ResizeObserver(() => {
-      if (containerRef.current && canvasRef.current && !canvasRef.current.disposed) {
+      if (containerRef.current && canvasRef.current && !false) {
         canvasRef.current.setDimensions({
           width: containerRef.current.clientWidth,
           height: containerRef.current.clientHeight,
@@ -262,8 +275,17 @@ export const DrawingBoard = forwardRef<DrawingBoardRef, DrawingBoardProps>(({
 
     return () => {
       resizeObserver.disconnect();
-      canvas.dispose();
       canvasRef.current = null;
+      try {
+        const p = canvas.dispose();
+        if (p && typeof (p as any).catch === 'function') {
+           (p as any).catch(() => {});
+        }
+      } catch(e) {}
+      
+      if (canvasWrapperRef.current) {
+        canvasWrapperRef.current.innerHTML = '';
+      }
     };
   }, []);
 
@@ -310,7 +332,7 @@ export const DrawingBoard = forwardRef<DrawingBoardRef, DrawingBoardProps>(({
   const lastLoadedPageIdRef = useRef<string>(pageId);
 
   useEffect(() => {
-    if (!canvasRef.current || canvasRef.current.disposed) return;
+    if (!canvasRef.current || false) return;
     const canvas = canvasRef.current;
     let isCurrent = true;
 
@@ -330,7 +352,7 @@ export const DrawingBoard = forwardRef<DrawingBoardRef, DrawingBoardProps>(({
     lastLoadedPageIdRef.current = pageId;
 
     canvas.loadFromJSON(loadData).then(() => {
-      if (!isCurrent || canvas.disposed) return;
+      if (!isCurrent || canvas !== canvasRef.current) return;
       canvas.renderAll();
       const finalJson = JSON.stringify(canvas.toObject());
       undoStack.current = [finalJson];
@@ -343,14 +365,19 @@ export const DrawingBoard = forwardRef<DrawingBoardRef, DrawingBoardProps>(({
   }, [pageId, pageData]);
 
   useImperativeHandle(ref, () => ({
-    clear: () => { canvasRef.current?.clear(); saveState(); },
+    clear: () => { 
+      if (!canvasRef.current) return;
+      canvasRef.current.remove(...canvasRef.current.getObjects()); 
+      canvasRef.current.requestRenderAll();
+      saveState(); 
+    },
     undo: () => {
-      if (undoStack.current.length > 1 && canvasRef.current && !canvasRef.current.disposed) {
+      if (undoStack.current.length > 1 && canvasRef.current && !false) {
         isLoadingRef.current = true;
         redoStack.current.push(undoStack.current.pop()!);
         const last = undoStack.current[undoStack.current.length - 1];
         canvasRef.current.loadFromJSON(JSON.parse(last)).then(() => {
-          if (canvasRef.current && !canvasRef.current.disposed) {
+          if (canvasRef.current && !false) {
             canvasRef.current.renderAll();
             isLoadingRef.current = false;
             emitChange();
@@ -359,12 +386,12 @@ export const DrawingBoard = forwardRef<DrawingBoardRef, DrawingBoardProps>(({
       }
     },
     redo: () => {
-      if (redoStack.current.length > 0 && canvasRef.current && !canvasRef.current.disposed) {
+      if (redoStack.current.length > 0 && canvasRef.current && !false) {
         isLoadingRef.current = true;
         const next = redoStack.current.pop()!;
         undoStack.current.push(next);
         canvasRef.current.loadFromJSON(JSON.parse(next)).then(() => {
-          if (canvasRef.current && !canvasRef.current.disposed) {
+          if (canvasRef.current && !false) {
             canvasRef.current.renderAll();
             isLoadingRef.current = false;
             emitChange();
@@ -374,7 +401,7 @@ export const DrawingBoard = forwardRef<DrawingBoardRef, DrawingBoardProps>(({
     },
     exportImage: () => canvasRef.current?.toDataURL({ format: 'png', multiplier: 2 }) || '',
     addText: () => {
-      if (!canvasRef.current || canvasRef.current.disposed) return;
+      if (!canvasRef.current || false) return;
       const vCenter = canvasRef.current.getVpCenter();
       const text = new fabric.IText('Double Tap', {
         left: vCenter.x, top: vCenter.y, fontFamily: 'Inter', fill: color, fontSize: thickness * 5, originX: 'center', originY: 'center'
@@ -388,7 +415,7 @@ export const DrawingBoard = forwardRef<DrawingBoardRef, DrawingBoardProps>(({
       const reader = new FileReader();
       reader.onload = (f) => {
         fabric.FabricImage.fromURL(f.target?.result as string).then(img => {
-          if (!canvasRef.current || canvasRef.current.disposed) return;
+          if (!canvasRef.current || false) return;
           img.scaleToWidth(500);
           const vCenter = canvasRef.current.getVpCenter();
           img.set({ left: vCenter.x, top: vCenter.y, originX: 'center', originY: 'center' });
@@ -404,7 +431,7 @@ export const DrawingBoard = forwardRef<DrawingBoardRef, DrawingBoardProps>(({
   return (
     <div 
       ref={containerRef} 
-      className="w-full h-full relative overflow-hidden bg-[#0a0a0a] transition-all duration-300"
+      className="w-full h-full relative overflow-hidden bg-[#0a0a0a] transition-all duration-300 touch-none"
       style={backgroundMode === BackgroundMode.Grid ? {
         backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.25) 1.5px, transparent 1.5px)',
         backgroundSize: '40px 40px',
@@ -414,7 +441,7 @@ export const DrawingBoard = forwardRef<DrawingBoardRef, DrawingBoardProps>(({
       } : {}}
     >
       <div className="absolute inset-0 pointer-events-none shadow-[inset_0_0_150px_rgba(0,0,0,0.9)] z-10" />
-      <canvas ref={htmlCanvasRef} />
+      <div ref={canvasWrapperRef} className="w-full h-full" />
     </div>
   );
 });
